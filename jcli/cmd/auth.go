@@ -10,9 +10,9 @@ import (
 )
 
 // connectCmd represents the connect command
-var connectCmd = &cobra.Command{
-	Use:   "connect",
-	Short: "Connect a Jenkins server",
+var authCmd = &cobra.Command{
+	Use:   "auth",
+	Short: "Authenticates with a Jenkins server",
 	Long:  `Specify address of a Jenkins server to connect to.`,
 	Run: func(cmd *cobra.Command, args []string) {
 
@@ -65,10 +65,10 @@ func checkAccessPermission() bool {
 }
 
 func init() {
-	rootCmd.AddCommand(connectCmd)
+	rootCmd.AddCommand(authCmd)
 
-	// connectCmd.Flags().StringVarP(&Address, "address", "a", "", "Address of Jenkins server.")
-	// connectCmd.MarkFlagRequired("address")
-	// connectCmd.Flags().StringVarP(&User, "user", "u", "", "User to connect to Jenkins server.")
-	// connectCmd.MarkFlagRequired("user")
+	// authCmd.Flags().StringVarP(&Address, "address", "a", "", "Address of Jenkins server.")
+	// authCmd.MarkFlagRequired("address")
+	// authCmd.Flags().StringVarP(&User, "user", "u", "", "User to connect to Jenkins server.")
+	// authCmd.MarkFlagRequired("user")
 }
