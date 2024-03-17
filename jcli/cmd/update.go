@@ -4,7 +4,6 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	// "bufio"
 	"fmt"
 	"io"
 	"log"
@@ -14,8 +13,6 @@ import (
 	"regexp"
 	"time"
 
-	// "path/filepath"
-
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
@@ -24,6 +21,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/gosuri/uilive"
 	"github.com/spf13/cobra"
+	"jcli/auth"
 )
 
 type QueueInfo struct {
@@ -50,6 +48,8 @@ var updateCmd = &cobra.Command{
 	Short: "Update a Jenkins job with a new pipeline script",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
+		APIKey = auth.LoadAPIKeyfromKeyring(Address, User)
+
 		// Check if the file exists
 		if _, err := os.Stat(File); os.IsNotExist(err) {
 			log.Println("Error: File does not exist.")
@@ -123,8 +123,8 @@ func (jo *JenkinsOutput) streamBuildOutput(filterOutput bool) {
 
 }
 
+// removePipelinePart removes the [Pipeline] part from the console output
 func removePipelinePart(consoleOutput string) string {
-	// Remove all lines that contain `[Pipeline]` from the console output
 	regexp := regexp.MustCompile(`(?m)\[Pipeline\].*\n`)
 	res := regexp.ReplaceAllString(consoleOutput, "")
 	return res
@@ -169,6 +169,7 @@ func triggerBuild(jobName string) string {
 	return buildUrl
 }
 
+// checkInQueue checks if the build is still in the queue
 func checkInQueue(queueLocation string) (string, bool) {
 	queueUrl := queueLocation + "api/json"
 	req, _ := http.NewRequest("GET", queueUrl, nil)
@@ -192,6 +193,7 @@ func checkInQueue(queueLocation string) (string, bool) {
 	return queueInfo.Location.Url, false
 }
 
+// loadPipelineScriptFromFile loads the pipeline script from a file
 func loadPipelineScriptFromFile(filename string) (string, error) {
 	// Open the file
 	file, err := os.Open(filename)
@@ -229,7 +231,7 @@ func replacePipelineScript(config, newPipeline string) (string, error) {
 	updatedConfig, _ := doc.WriteToString()
 	// Add the old xml header back to the updatedConfig
 	updatedConfig = oldXMLHeader + updatedConfig[39:]
-	log.Println(updatedConfig)
+	// log.Println(updatedConfig)
 	return updatedConfig, nil
 }
 
@@ -262,8 +264,6 @@ func getJobConfig(jobName string) (string, error) {
 	if err != nil {
 		log.Println("Error:", err)
 	}
-	log.Println("User:", User)
-	log.Println("APIKey:", APIKey)
 	req.SetBasicAuth(User, APIKey)
 	client := &http.Client{}
 	resp, err := client.Do(req)
