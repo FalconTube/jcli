@@ -1,16 +1,19 @@
 /*
 Copyright © 2024 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
+	"log"
 	"os"
 
+	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 )
 
-
+var Address string
+var User string
+var APIKey string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -30,7 +33,14 @@ to quickly create a Cobra application.`,
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	err := rootCmd.Execute()
+	// Load the API Key from the .env file
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+	APIKey = os.Getenv("API_KEY")
+	// Execute the root command
+	err = rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
 	}
@@ -45,7 +55,9 @@ func init() {
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.PersistentFlags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.PersistentFlags().StringVarP(&Address, "address", "a", "", "Address of Jenkins server.")
+	rootCmd.MarkFlagRequired("address")
+	rootCmd.PersistentFlags().StringVarP(&User, "user", "u", "", "User to connect to Jenkins server.")
+	rootCmd.MarkFlagRequired("user")
 }
-
-
