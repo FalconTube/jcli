@@ -31,6 +31,7 @@ import (
 var (
 	currentPkgNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("211"))
 	doneStyle           = lipgloss.NewStyle().Margin(1, 1, 0)
+	helpStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Margin(0, 1)
 	checkMark           = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).SetString("✓")
 )
 
@@ -44,13 +45,14 @@ type BuildLocation struct {
 }
 
 type model struct {
-	BuildUrl string
-	width    int
-	height   int
-	spinner  spinner.Model
-	done     bool
-	viewport viewport.Model
-	status   string
+	BuildUrl      string
+	width         int
+	height        int
+	done          bool
+	statusMessage string
+	userScrolled  bool
+	spinner       spinner.Model
+	viewport      viewport.Model
 }
 
 type consoleOutput string
@@ -89,14 +91,14 @@ func (m *model) initBuild() tea.Cmd {
 		updateJobConfig("foo", updatedScript)
 		log.Println("Info: Updated pipeline script for job foo")
 		// Trigger a build
-		m.status = "💤 Waiting for job to start..."
+		m.statusMessage = "💤 Waiting for job to start..."
 		buildUrl := triggerBuild("foo")
 		// log.Println("Info: Build URL:", buildUrl)
 		time.Sleep(1 * time.Second)
 		// Stream the output of the build console to the terminal
 		log.Println("Info: Build URL inside initBuild:", buildUrl)
 		m.BuildUrl = buildUrl
-		m.status = " 👷 Executing build..."
+		m.statusMessage = " 👷 Executing build..."
 
 		return consoleOutput("No console output yet...")
 	}
@@ -327,23 +329,23 @@ func newModel() *model {
 	vp := viewport.New(width, height)
 	vp.Style = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		Margin(1, 1)
+		Margin(1, 1, 0)
 
 	vp.SetContent("No console output yet...")
 
 	// Setup spinner
 	s := spinner.New()
+	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 	return &model{
-		spinner:  s,
-		viewport: vp,
-		status:   "⌚ Triggering job ...",
+		spinner:       s,
+		viewport:      vp,
+		userScrolled:  false,
+		statusMessage: "⌚ Triggering job ...",
 	}
 }
 
 func (m *model) Init() tea.Cmd {
-	// buildUrl := initBuild()
-	// m.BuildUrl = buildUrl
 	return tea.Batch(m.GetBuildOutput(true), m.spinner.Tick)
 }
 
@@ -353,37 +355,57 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.viewport.Height = m.height - 7
+		m.viewport.Width = m.width - 3
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc", "q":
 			return m, tea.Quit
+		case "k", "up", "j", "down", "home", "end":
+			m.userScrolled = true
+		case "ctrl+u", "pageup":
+			m.userScrolled = true
+			m.viewport.ViewUp()
+		case "ctrl+d", "pagedown":
+			m.userScrolled = true
+			m.viewport.ViewDown()
+		case "a", "G":
+			// Append to auto scroll again
+			m.userScrolled = false
+			m.viewport.GotoBottom()
 		}
 	case emptyUrl:
 		cmds = append(cmds, m.initBuild())
 	case consoleFinish:
 		// Build finished
-		m.status = checkMark.Render() + " Build finished!"
+		m.statusMessage = checkMark.Render() + " Build finished!"
 		m.done = true
 		// return m, tea.Quit
 	case consoleOutput:
 		m.viewport.SetContent(string(msg))
-		m.viewport, cmd = m.viewport.Update(msg)
+		// If user scrolled manually, don't auto-scroll
+		if !m.userScrolled {
+			m.viewport.GotoBottom()
+		}
+		// m.viewport, cmd = m.viewport.Update(msg)
 
-		cmds = append(cmds, cmd)
 		cmds = append(cmds, m.GetBuildOutput(true))
 	case spinner.TickMsg:
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	}
+	m.viewport, cmd = m.viewport.Update(msg)
+	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
+	help := helpStyle.Render(fmt.Sprintf("\n a/G: auto-scroll • j/↓: down • k/↑: up\n c+u/p-up: page up • c+d/p-down: page down •q: exit\n"))
 	if m.done {
-		return doneStyle.Render(m.status+"\n") + m.viewport.View()
+		return doneStyle.Render(m.statusMessage+"\n") + m.viewport.View() + help
 	}
-	spin := m.spinner.View() + " " + m.status + "\n"
-	return doneStyle.Render(spin) + m.viewport.View()
+	spin := m.spinner.View() + " " + m.statusMessage + "\n"
+	return doneStyle.Render(spin) + m.viewport.View() + help
 }
 
 func main() {
