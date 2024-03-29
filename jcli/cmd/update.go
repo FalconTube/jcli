@@ -28,6 +28,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	currentPkgNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("211"))
+	doneStyle           = lipgloss.NewStyle().Margin(1, 1, 0)
+	checkMark           = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).SetString("✓")
+)
+
 type QueueInfo struct {
 	Reason   string        `json:"why"`
 	Location BuildLocation `json:"executable"`
@@ -92,7 +98,7 @@ func (m *model) initBuild() tea.Cmd {
 		m.BuildUrl = buildUrl
 		m.status = " 👷 Executing build..."
 
-		return consoleOutput("")
+		return consoleOutput("No console output yet...")
 	}
 }
 
@@ -314,14 +320,6 @@ func init() {
 	updateCmd.MarkFlagRequired("file")
 }
 
-// Bubble Tea model
-
-var (
-	currentPkgNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("211"))
-	doneStyle           = lipgloss.NewStyle().Margin(1, 2)
-	checkMark           = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).SetString("✓")
-)
-
 func newModel() *model {
 	// Setup viewport
 	const width = 78
@@ -329,7 +327,7 @@ func newModel() *model {
 	vp := viewport.New(width, height)
 	vp.Style = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		Padding(1, 1)
+		Margin(1, 1)
 
 	vp.SetContent("No console output yet...")
 
@@ -364,7 +362,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.initBuild())
 	case consoleFinish:
 		// Build finished
-		m.status = "🚀 Build finished!"
+		m.status = checkMark.Render() + " Build finished!"
+		m.done = true
 		// return m, tea.Quit
 	case consoleOutput:
 		m.viewport.SetContent(string(msg))
@@ -380,8 +379,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	if m.done {
+		return doneStyle.Render(m.status+"\n") + m.viewport.View()
+	}
 	spin := m.spinner.View() + " " + m.status + "\n"
-	return spin + m.viewport.View()
+	return doneStyle.Render(spin) + m.viewport.View()
 }
 
 func main() {
