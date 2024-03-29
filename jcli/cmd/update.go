@@ -116,7 +116,7 @@ func (jo *JenkinsOutput) streamBuildOutput(filterOutput bool) {
 	}
 
 	if !jo.done {
-		time.Sleep(5 * time.Second)
+		time.Sleep(2000 * time.Millisecond)
 		jo.streamBuildOutput(filterOutput)
 	}
 	return
@@ -158,7 +158,8 @@ func triggerBuild(jobName string) string {
 	s.Color("green")
 	for {
 		buildUrl, inQueue = checkInQueue(queueLocation)
-		if !inQueue {
+		// Check not in queue and we have valid build url
+		if !inQueue && buildUrl != "" {
 			break
 		}
 		time.Sleep(1 * time.Second)
