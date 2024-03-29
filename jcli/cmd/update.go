@@ -16,10 +16,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"strings"
 
 	"github.com/beevik/etree"
-	"github.com/briandowns/spinner"
-	"github.com/gosuri/uilive"
+	// "github.com/briandowns/spinner"
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"jcli/auth"
 )
@@ -34,13 +37,15 @@ type BuildLocation struct {
 }
 
 type JenkinsOutput struct {
-	BuildUrl       string
-	done           bool
-	TerminalWriter uilive.Writer
-	errorCount     int
+	BuildUrl   string
+	errorCount int
 }
 
+type consoleOutput string
+type consoleFinish string
+
 var File string
+var FullLog string
 
 // updateCmd represents the update command
 var updateCmd = &cobra.Command{
@@ -48,79 +53,91 @@ var updateCmd = &cobra.Command{
 	Short: "Update a Jenkins job with a new pipeline script",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		APIKey = auth.LoadAPIKeyfromKeyring(Address, User)
-
-		// Check if the file exists
-		if _, err := os.Stat(File); os.IsNotExist(err) {
-			log.Println("Error: File does not exist.")
-			log.Fatal("Error: Could not read pipeline script from file", File)
-		}
-		config, _ := getJobConfig("foo")
-		newPipeline, err := loadPipelineScriptFromFile(filepath.Clean(File))
-		if err != nil {
-			log.Println("Error:", err)
-			log.Fatal("Error: Could not read pipeline script from file", File)
-		}
-		updatedScript, _ := replacePipelineScript(config, newPipeline)
-		updateJobConfig("foo", updatedScript)
-		log.Println("Info: Updated pipeline script for job foo")
-		// Trigger a build
-		buildUrl := triggerBuild("foo")
-		// log.Println("Info: Build URL:", buildUrl)
-		time.Sleep(1 * time.Second)
-		// Stream the output of the build console to the terminal
-		writer := uilive.New()
-		jo := JenkinsOutput{BuildUrl: buildUrl, done: false, TerminalWriter: *writer, errorCount: 0}
-		jo.streamBuildOutput(true)
-
+		main()
 	},
 }
 
-func (jo *JenkinsOutput) streamBuildOutput(filterOutput bool) {
-	// Setup console output request
-	req, err := http.NewRequest("GET", jo.BuildUrl+"/logText/progressiveText", nil)
+func initBuild() JenkinsOutput {
+	APIKey = auth.LoadAPIKeyfromKeyring(Address, User)
+
+	// Check if the file exists
+	if _, err := os.Stat(File); os.IsNotExist(err) {
+		log.Println("Error: File does not exist.")
+		log.Fatal("Error: Could not read pipeline script from file", File)
+	}
+	config, _ := getJobConfig("foo")
+	newPipeline, err := loadPipelineScriptFromFile(filepath.Clean(File))
 	if err != nil {
 		log.Println("Error:", err)
+		log.Fatal("Error: Could not read pipeline script from file", File)
 	}
-	req.SetBasicAuth(User, APIKey)
-	client := &http.Client{}
+	updatedScript, _ := replacePipelineScript(config, newPipeline)
+	updateJobConfig("foo", updatedScript)
+	log.Println("Info: Updated pipeline script for job foo")
+	// Trigger a build
+	buildUrl := triggerBuild("foo")
+	// log.Println("Info: Build URL:", buildUrl)
+	time.Sleep(1 * time.Second)
+	// Stream the output of the build console to the terminal
+	jo := JenkinsOutput{BuildUrl: buildUrl, errorCount: 0}
+	return jo
+}
 
-	// Send the request
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Println("Error:", err)
-		log.Println("Error: Could not connect to Jenkins server. Please check the address and try again.")
-	}
-	defer resp.Body.Close()
-	// Read the response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Println("Error:", err)
-		jo.done = true
-	}
-	// Write the response to the terminal, replacing the previous output
-	jo.TerminalWriter.Start()
-	if filterOutput {
-		outbody := removePipelinePart(string(body))
-		fmt.Fprintf(&jo.TerminalWriter, outbody)
-	} else {
-		fmt.Fprintf(&jo.TerminalWriter, string(body))
+// func (jo *JenkinsOutput) GetBuildOutput(filterOutput bool) tea.Cmd {
+func (m model) GetBuildOutput(filterOutput bool) tea.Cmd {
+	return func() tea.Msg {
+		// Setup console output request
+		req, err := http.NewRequest("GET", m.jo.BuildUrl+"/logText/progressiveText", nil)
+		if err != nil {
+			log.Println("Error:", err)
+		}
+		req.SetBasicAuth(User, APIKey)
+		client := &http.Client{}
+
+		// Send the request
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Println("Error:", err)
+			log.Println("Error: Could not connect to Jenkins server. Please check the address and try again.")
+		}
+		defer resp.Body.Close()
+		// Read the response
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Println("Error:", err)
+			m.done = true
+		}
+		// Check if the build is still running
+		xMoreData := resp.Header.Get("X-More-Data")
+		if xMoreData != "true" {
+			m.done = true
+			return consoleFinish("Build finished!")
+			// return consoleOutput(string(body))
+		}
+		// Get the new log as raw
+		rawLog := string(body)
+		var cleanedLog string
+		// Remove the [Pipeline] part from the console output
+		if filterOutput {
+			cleanedLog = removePipelinePart(rawLog)
+		} else {
+			cleanedLog = rawLog
+		}
+
+		// Check if the full log is empty
+		var newLog string
+		if FullLog == "" {
+			log.Println("Setting full log to new log")
+			FullLog = strings.Clone(cleanedLog)
+			newLog = FullLog
+		} else {
+			// If the full log is not empty, get the new logText
+			newLog = strings.ReplaceAll(cleanedLog, FullLog, "")
+			FullLog = strings.Clone(cleanedLog)
+		}
+		return consoleOutput(newLog)
 
 	}
-	jo.TerminalWriter.Stop()
-	// Check if the build is still running
-	xMoreData := resp.Header.Get("X-More-Data")
-	if xMoreData != "true" {
-		jo.done = true
-		return
-	}
-
-	if !jo.done {
-		time.Sleep(2000 * time.Millisecond)
-		jo.streamBuildOutput(filterOutput)
-	}
-	return
-
 }
 
 // removePipelinePart removes the [Pipeline] part from the console output
@@ -131,11 +148,6 @@ func removePipelinePart(consoleOutput string) string {
 }
 
 func triggerBuild(jobName string) string {
-	// Set up the spinner
-	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond) // Build our new spinner
-	s.Color("yellow")
-	s.Suffix = " Triggering build..."
-	s.Start() // Start the spinner
 	// Trigger the build
 	jobUrl := Address + "/job/" + jobName + "/build?delay=0sec"
 	req, _ := http.NewRequest("POST", jobUrl, nil)
@@ -154,8 +166,6 @@ func triggerBuild(jobName string) string {
 	// Loop until the build is no longer in the queue
 	var buildUrl string
 	var inQueue bool = true
-	s.Suffix = " Waiting for build to start..."
-	s.Color("green")
 	for {
 		buildUrl, inQueue = checkInQueue(queueLocation)
 		// Check not in queue and we have valid build url
@@ -164,9 +174,8 @@ func triggerBuild(jobName string) string {
 		}
 		time.Sleep(1 * time.Second)
 	}
-	finalMsg := fmt.Sprintf("🚀 Build started successfully!\n🔗 Build url is: %sconsole\n🗎  Will now serve console output in real time\n\n", buildUrl)
-	s.FinalMSG = finalMsg
-	s.Stop()
+	fmt.Printf("\n🚀 Build started successfully!\n🔗 Build url is: %sconsole\n🗎  Will now serve console output in real time\n\n", buildUrl)
+	// finalMsg := fmt.Sprintf("🚀 Build started successfully!\n🔗 Build url is: %sconsole\n🗎  Will now serve console output in real time\n\n", buildUrl)
 	return buildUrl
 }
 
@@ -286,4 +295,121 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	updateCmd.Flags().StringVarP(&File, "file", "f", "", "Path to the pipeline script file.")
 	updateCmd.MarkFlagRequired("file")
+}
+
+// tea packman example
+
+type model struct {
+	packages []string
+	index    int
+	width    int
+	height   int
+	spinner  spinner.Model
+	done     bool
+	jo       JenkinsOutput
+}
+
+var (
+	currentPkgNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("211"))
+	doneStyle           = lipgloss.NewStyle().Margin(1, 2)
+	checkMark           = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).SetString("✓")
+)
+
+func newModel() model {
+	s := spinner.New()
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+	jo := initBuild()
+	return model{
+		packages: []string{"Foo", "Bar", "Baz", "Qux", "Quux", "Corge", "Grault", "Garply", "Waldo", "Fred", "Plugh", "Xyzzy", "Thud"},
+		spinner:  s,
+		jo:       jo,
+	}
+}
+
+func (m model) Init() tea.Cmd {
+	// jo := initBuild()
+	// m.jo = jo
+	// log.Println("Init with build url: ", jo.BuildUrl)
+	log.Println("Init with build model url: ", m.jo.BuildUrl)
+	return tea.Batch(m.GetBuildOutput(true), m.spinner.Tick)
+	// return tea.Batch(downloadAndInstall(m.packages[m.index]), m.spinner.Tick)
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc", "q":
+			return m, tea.Quit
+		}
+	case consoleFinish:
+		// Build finished
+		log.Println("🚀 Build finished!")
+		return m, tea.Quit
+	case consoleOutput:
+		// wait a bit
+		time.Sleep(1 * time.Second)
+
+		return m, tea.Batch(
+			// tea.Printf("%s %s", checkMark, m.packages[m.index]), // print success message above our program
+			tea.Printf("%s", msg), // print success message above our program
+			m.GetBuildOutput(true),
+			// downloadAndInstall("mypkg"),                         // download the next package
+		)
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m model) View() string {
+	n := len(m.packages)
+	w := lipgloss.Width(fmt.Sprintf("%d", n))
+
+	if m.done {
+		return doneStyle.Render(fmt.Sprintf("Done! Installed %d packages.\n", n))
+	}
+
+	pkgCount := fmt.Sprintf(" %*d/%*d", w, m.index, w, n-1)
+
+	spin := m.spinner.View() + " "
+	cellsAvail := max(0, m.width-lipgloss.Width(spin+pkgCount))
+
+	pkgName := currentPkgNameStyle.Render(m.packages[m.index])
+	info := lipgloss.NewStyle().MaxWidth(cellsAvail).Render("Installing " + pkgName)
+
+	cellsRemaining := max(0, m.width-lipgloss.Width(spin+info+pkgCount))
+	gap := strings.Repeat(" ", cellsRemaining)
+
+	return spin + info + gap + pkgCount
+}
+
+type installedPkgMsg string
+
+func downloadAndInstall(pkg string) tea.Cmd {
+	// This is where you'd do i/o stuff to download and install packages. In
+	// our case we're just pausing for a moment to simulate the process.
+	d := 500 * time.Millisecond //nolint:gosec
+	return tea.Tick(d, func(t time.Time) tea.Msg {
+		return installedPkgMsg(pkg)
+	})
+}
+
+func main() {
+	if len(os.Getenv("DEBUG")) > 0 {
+		f, err := tea.LogToFile("debug.log", "debug")
+		if err != nil {
+			fmt.Println("fatal:", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+	}
+	if _, err := tea.NewProgram(newModel()).Run(); err != nil {
+		fmt.Println("Error running program:", err)
+		os.Exit(1)
+	}
 }
