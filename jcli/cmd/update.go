@@ -46,6 +46,7 @@ type BuildLocation struct {
 
 type BuildModel struct {
 	BuildUrl      string
+	File          string
 	width         int
 	height        int
 	done          bool
@@ -59,7 +60,7 @@ type consoleOutput string
 type consoleFinish string
 type emptyUrl string
 
-var File string = "Jenkinsfile"
+// var File string
 var FullLog string
 
 // updateCmd represents the update command
@@ -77,16 +78,15 @@ func (m *BuildModel) initBuild() tea.Cmd {
 		APIKey = auth.LoadAPIKeyfromKeyring(Address, User)
 
 		// Check if the file exists
-		File = "Jenkinsfile"
-		if _, err := os.Stat(File); os.IsNotExist(err) {
+		if _, err := os.Stat(m.File); os.IsNotExist(err) {
 			log.Println("Error: File does not exist.")
-			log.Fatal("Error: Could not read pipeline script from file", File)
+			log.Fatal("Error: Could not read pipeline script from file", m.File)
 		}
 		config, _ := getJobConfig("foo")
-		newPipeline, err := loadPipelineScriptFromFile(filepath.Clean(File))
+		newPipeline, err := loadPipelineScriptFromFile(filepath.Clean(m.File))
 		if err != nil {
 			log.Println("Error:", err)
-			log.Fatal("Error: Could not read pipeline script from file", File)
+			log.Fatal("Error: Could not read pipeline script from file", m.File)
 		}
 		updatedScript, _ := replacePipelineScript(config, newPipeline)
 		updateJobConfig("foo", updatedScript)
@@ -319,15 +319,13 @@ func getJobConfig(jobName string) (string, error) {
 
 func init() {
 	rootCmd.AddCommand(updateCmd)
-	updateCmd.Flags().StringVarP(&File, "file", "f", "", "Path to the pipeline script file.")
-	updateCmd.MarkFlagRequired("file")
+	// updateCmd.Flags().StringVarP(&File, "file", "f", "", "Path to the pipeline script file.")
+	// updateCmd.MarkFlagRequired("file")
 }
 
-func NewBuildModel(filename string) *BuildModel {
-	// Setup viewport
-	const width = 78
-	const height = 20
-	vp := viewport.New(width, height)
+func NewBuildModel(filename string, width int, height int) *BuildModel {
+	// Setup viewport initial dimensions. Will be set to full screen size in the first update.
+	vp := viewport.New(width-3, height-7)
 	vp.Style = lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		Margin(1, 1, 0)
@@ -339,6 +337,7 @@ func NewBuildModel(filename string) *BuildModel {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 	return &BuildModel{
+		File:          filename,
 		spinner:       s,
 		viewport:      vp,
 		userScrolled:  false,
@@ -356,12 +355,11 @@ func (m *BuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		log.Println("Window size message")
 		m.width, m.height = msg.Width, msg.Height
 		m.viewport.Height = m.height - 7
 		m.viewport.Width = m.width - 3
 	case tea.KeyMsg:
-		log.Println("KeyMsg")
-		log.Println(msg.String())
 		switch msg.String() {
 		case "ctrl+c", "esc", "q":
 			return m, tea.Quit
@@ -399,7 +397,6 @@ func (m *BuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	}
-	log.Println("At end")
 	m.viewport, cmd = m.viewport.Update(msg)
 	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
@@ -424,7 +421,8 @@ func main() {
 		defer f.Close()
 	}
 	testFile := "Jenkinsfile"
-	if _, err := tea.NewProgram(NewBuildModel(testFile), tea.WithMouseCellMotion(), tea.WithAltScreen()).Run(); err != nil {
+	width, height := 80, 24
+	if _, err := tea.NewProgram(NewBuildModel(testFile, width, height), tea.WithMouseCellMotion(), tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}

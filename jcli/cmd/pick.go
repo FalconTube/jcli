@@ -31,10 +31,11 @@ func init() {
 }
 
 type PickModel struct {
-	filepicker   filepicker.Model
-	selectedFile string
-	quitting     bool
-	err          error
+	filepicker    filepicker.Model
+	selectedFile  string
+	quitting      bool
+	err           error
+	width, height int
 }
 
 type clearErrorMsg struct{}
@@ -51,15 +52,20 @@ func (m PickModel) Init() tea.Cmd {
 
 func (m PickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		log.Println("Window size message")
+		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			m.quitting = true
 			return m, tea.Quit
 		case "o":
-			log.Println("Selected file: " + m.selectedFile)
-
-			newBuildModel := NewBuildModel("Jenkinsfile")
+			selectedFile := m.selectedFile
+			relativePath := strings.Replace(selectedFile, m.filepicker.CurrentDirectory+"/", "", 1)
+			log.Println("\n  You selected: " + m.filepicker.Styles.Selected.Render(m.selectedFile) + "\n")
+			log.Println("\n  Relative path: " + m.filepicker.Styles.Selected.Render(relativePath) + "\n")
+			newBuildModel := NewBuildModel(selectedFile, m.width, m.height)
 			rootModel := NewMainModel()
 			return rootModel.SwitchScreen(newBuildModel)
 		}
@@ -73,6 +79,7 @@ func (m PickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Did the user select a file?
 	if didSelect, path := m.filepicker.DidSelectFile(msg); didSelect {
 		// Get the path of the selected file.
+		log.Println("User selected file: ", path)
 		m.selectedFile = path
 	}
 
@@ -109,6 +116,7 @@ func NewPickModel() PickModel {
 	fp := filepicker.New()
 	fp.AllowedTypes = []string{".groovy", ".gvy", "Jenkinsfile"}
 	fp.CurrentDirectory, _ = os.Getwd()
+	fp.ShowPermissions = false
 
 	return PickModel{
 		filepicker: fp,
