@@ -44,7 +44,7 @@ type BuildLocation struct {
 	Url string `json:"url"`
 }
 
-type model struct {
+type BuildModel struct {
 	BuildUrl      string
 	width         int
 	height        int
@@ -59,7 +59,7 @@ type consoleOutput string
 type consoleFinish string
 type emptyUrl string
 
-var File string
+var File string = "Jenkinsfile"
 var FullLog string
 
 // updateCmd represents the update command
@@ -72,11 +72,12 @@ var updateCmd = &cobra.Command{
 	},
 }
 
-func (m *model) initBuild() tea.Cmd {
+func (m *BuildModel) initBuild() tea.Cmd {
 	return func() tea.Msg {
 		APIKey = auth.LoadAPIKeyfromKeyring(Address, User)
 
 		// Check if the file exists
+		File = "Jenkinsfile"
 		if _, err := os.Stat(File); os.IsNotExist(err) {
 			log.Println("Error: File does not exist.")
 			log.Fatal("Error: Could not read pipeline script from file", File)
@@ -104,7 +105,7 @@ func (m *model) initBuild() tea.Cmd {
 	}
 }
 
-func (m *model) GetBuildOutput(filterOutput bool) tea.Cmd {
+func (m *BuildModel) GetBuildOutput(filterOutput bool) tea.Cmd {
 	return func() tea.Msg {
 		time.Sleep(3 * time.Second)
 		if m.BuildUrl == "" {
@@ -322,7 +323,7 @@ func init() {
 	updateCmd.MarkFlagRequired("file")
 }
 
-func newModel() *model {
+func NewBuildModel(filename string) *BuildModel {
 	// Setup viewport
 	const width = 78
 	const height = 20
@@ -337,7 +338,7 @@ func newModel() *model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
-	return &model{
+	return &BuildModel{
 		spinner:       s,
 		viewport:      vp,
 		userScrolled:  false,
@@ -345,11 +346,12 @@ func newModel() *model {
 	}
 }
 
-func (m *model) Init() tea.Cmd {
+func (m *BuildModel) Init() tea.Cmd {
+	log.Println("Init in BuildModel")
 	return tea.Batch(m.GetBuildOutput(true), m.spinner.Tick)
 }
 
-func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *BuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
@@ -358,6 +360,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Height = m.height - 7
 		m.viewport.Width = m.width - 3
 	case tea.KeyMsg:
+		log.Println("KeyMsg")
+		log.Println(msg.String())
 		switch msg.String() {
 		case "ctrl+c", "esc", "q":
 			return m, tea.Quit
@@ -375,6 +379,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.GotoBottom()
 		}
 	case emptyUrl:
+		log.Println("Empty URL")
 		cmds = append(cmds, m.initBuild())
 	case consoleFinish:
 		// Build finished
@@ -394,12 +399,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	}
+	log.Println("At end")
 	m.viewport, cmd = m.viewport.Update(msg)
 	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
 }
 
-func (m model) View() string {
+func (m BuildModel) View() string {
 	help := helpStyle.Render(fmt.Sprintf("\n a/G: auto-scroll • j/↓: down • k/↑: up\n c+u/p-up: page up • c+d/p-down: page down •q: exit\n"))
 	if m.done {
 		return doneStyle.Render(m.statusMessage+"\n") + m.viewport.View() + help
@@ -417,7 +423,8 @@ func main() {
 		}
 		defer f.Close()
 	}
-	if _, err := tea.NewProgram(newModel(), tea.WithMouseCellMotion(), tea.WithAltScreen()).Run(); err != nil {
+	testFile := "Jenkinsfile"
+	if _, err := tea.NewProgram(NewBuildModel(testFile), tea.WithMouseCellMotion(), tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
