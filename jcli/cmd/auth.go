@@ -24,9 +24,8 @@ var authCmd = &cobra.Command{
 	Short: "Authenticates with a Jenkins server",
 	Long:  `Specify address of a Jenkins server to connect to.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		APIKey = Token
-
 		// Make a get request to url at Address to check if Jenkins is alive
+		log.Println("Jenkins", Jenkins)
 		checkServerRunning()
 		log.Println("Info: Jenkins server is alive at", Address)
 		hasAccess := checkAccessPermission()
@@ -46,7 +45,7 @@ func saveCredentialsToKeyring() {
 	if err != nil {
 		if err.Error() == keyring.ErrNotFound.Error() {
 			log.Println("Info: Credentials not yet saved to keyring. Saving now.")
-			keyring.Set(serverAddress, User, APIKey)
+			keyring.Set(serverAddress, User, Token)
 			log.Println("Info: Credentials saved to keyring.")
 			return
 		}
@@ -54,7 +53,7 @@ func saveCredentialsToKeyring() {
 		log.Fatal("Error: Keyring not supported on this system. Install a keyring manager for your OS.", err)
 	}
 	if confirmInput(serverAddress) {
-		keyring.Set(serverAddress, User, APIKey)
+		keyring.Set(serverAddress, User, Token)
 	}
 
 }
@@ -100,7 +99,7 @@ func checkAccessPermission() bool {
 		log.Println("Error:", err)
 		return false
 	}
-	req.SetBasicAuth(User, APIKey)
+	req.SetBasicAuth(User, Token)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {

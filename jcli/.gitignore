@@ -23,3 +23,10 @@ go.work
 .env
 main
 config.xml
+
+# Groovy files
+Jenkinsfile
+*.groovy
+
+# Log files
+*.log

@@ -6,29 +6,25 @@ package cmd
 import (
 	"os"
 
+	"jcli/auth"
+	"jcli/jenkins"
+
 	"github.com/spf13/cobra"
 )
 
 var Address string
 var User string
-var APIKey string
+var Jenkins *jenkins.Jenkins
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "jcli",
 	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Long:  `Long description of your application. This is where you would put`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	// Execute the root command
@@ -38,11 +34,13 @@ func Execute() {
 	}
 }
 
-func init() {
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
+func InitJenkins() {
+	apiKey := auth.LoadAPIKeyfromKeyring(Address, User)
+	Jenkins = jenkins.NewJenkins(Address, User, apiKey)
+}
 
+func init() {
+	// Always init Jenkins before running any command
 	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.jcli.yaml)")
 
 	// Cobra also supports local flags, which will only run

@@ -79,7 +79,6 @@ func (m PickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Did the user select a file?
 	if didSelect, path := m.filepicker.DidSelectFile(msg); didSelect {
 		// Get the path of the selected file.
-		log.Println("User selected file: ", path)
 		m.selectedFile = path
 	}
 
@@ -125,14 +124,12 @@ func NewPickModel() PickModel {
 }
 
 func pickmain() {
-	if len(os.Getenv("DEBUG")) > 0 {
-		f, err := tea.LogToFile("picker.log", "filepicker")
-		if err != nil {
-			fmt.Println("fatal:", err)
-			os.Exit(1)
-		}
-		defer f.Close()
+	f, err := tea.LogToFile("picker.log", "filepicker")
+	if err != nil {
+		fmt.Println("fatal:", err)
+		os.Exit(1)
 	}
+	defer f.Close()
 
 	m := NewPickModel()
 	tm, _ := tea.NewProgram(&m).Run()

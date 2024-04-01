@@ -18,14 +18,12 @@ var entryCmd = &cobra.Command{
 	Short: "A brief description of your command",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(os.Getenv("DEBUG")) > 0 {
-			f, err := tea.LogToFile("entry.log", "main")
-			if err != nil {
-				fmt.Println("fatal:", err)
-				os.Exit(1)
-			}
-			defer f.Close()
+		f, err := tea.LogToFile("entry.log", "main")
+		if err != nil {
+			fmt.Println("fatal:", err)
+			os.Exit(1)
 		}
+		defer f.Close()
 		p := tea.NewProgram(NewMainModel(), tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
 			fmt.Println("could not start program:", err)
@@ -36,6 +34,9 @@ var entryCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(entryCmd)
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		InitJenkins()
+	}
 }
 
 // General stuff for styling the view
