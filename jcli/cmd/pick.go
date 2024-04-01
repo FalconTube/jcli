@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -53,18 +54,36 @@ func (m PickModel) Init() tea.Cmd {
 func (m PickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		log.Println("Window size message")
 		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			m.quitting = true
 			return m, tea.Quit
-		case "o":
+		case "enter":
+			var cmd tea.Cmd
+			m.filepicker, cmd = m.filepicker.Update(msg)
+
+			// Did the user select a file?
+			if didSelect, path := m.filepicker.DidSelectFile(msg); didSelect {
+				// Get the path of the selected file.
+				m.selectedFile = path
+			}
+
+			// Did the user select a disabled file?
+			// This is only necessary to display an error to the user.
+			if didSelect, path := m.filepicker.DidSelectDisabledFile(msg); didSelect {
+				// Let's clear the selectedFile and display an error.
+				m.err = errors.New(path + " is not valid.")
+				m.selectedFile = ""
+				return m, tea.Batch(cmd, clearErrorAfter(2*time.Second))
+			}
+			// If selected, then switch to build screen
 			selectedFile := m.selectedFile
-			relativePath := strings.Replace(selectedFile, m.filepicker.CurrentDirectory+"/", "", 1)
+			basename := filepath.Base(selectedFile)
+			basename = strings.TrimSuffix(basename, filepath.Ext(basename))
 			log.Println("\n  You selected: " + m.filepicker.Styles.Selected.Render(m.selectedFile) + "\n")
-			log.Println("\n  Relative path: " + m.filepicker.Styles.Selected.Render(relativePath) + "\n")
+			log.Println("\n  Banename of file: " + m.filepicker.Styles.Selected.Render(basename) + "\n")
 			newBuildModel := NewBuildModel(selectedFile, m.width, m.height)
 			rootModel := NewMainModel()
 			return rootModel.SwitchScreen(newBuildModel)
@@ -72,24 +91,8 @@ func (m PickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clearErrorMsg:
 		m.err = nil
 	}
-
 	var cmd tea.Cmd
 	m.filepicker, cmd = m.filepicker.Update(msg)
-
-	// Did the user select a file?
-	if didSelect, path := m.filepicker.DidSelectFile(msg); didSelect {
-		// Get the path of the selected file.
-		m.selectedFile = path
-	}
-
-	// Did the user select a disabled file?
-	// This is only necessary to display an error to the user.
-	if didSelect, path := m.filepicker.DidSelectDisabledFile(msg); didSelect {
-		// Let's clear the selectedFile and display an error.
-		m.err = errors.New(path + " is not valid.")
-		m.selectedFile = ""
-		return m, tea.Batch(cmd, clearErrorAfter(2*time.Second))
-	}
 
 	return m, cmd
 }
@@ -116,6 +119,7 @@ func NewPickModel() PickModel {
 	fp.AllowedTypes = []string{".groovy", ".gvy", "Jenkinsfile"}
 	fp.CurrentDirectory, _ = os.Getwd()
 	fp.ShowPermissions = false
+	fp.ShowSize = true
 
 	return PickModel{
 		filepicker: fp,
@@ -124,7 +128,7 @@ func NewPickModel() PickModel {
 }
 
 func pickmain() {
-	f, err := tea.LogToFile("picker.log", "filepicker")
+	f, err := tea.LogToFile("lazyjenkins.log", "filepicker")
 	if err != nil {
 		fmt.Println("fatal:", err)
 		os.Exit(1)

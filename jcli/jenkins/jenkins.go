@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
 	"time"
 )
 
@@ -55,11 +57,67 @@ func (j *Jenkins) UpdateJobConfig(jobName, updatedConfig string) error {
 	return nil
 }
 
+func (j *Jenkins) CheckJobsExist(jobName string) bool {
+	// Make a get request to url at Address to check if Jenkins is alive
+	jobUrl := j.Address + "/job/" + jobName + "/config.xml"
+	req, err := http.NewRequest("GET", jobUrl, nil)
+	if err != nil {
+		log.Println("Error:", err)
+	}
+	req.SetBasicAuth(j.User, j.APIKey)
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Println("Error:", err)
+		log.Println("Error: Could not connect to Jenkins server. Please check the address and try again.")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 404 {
+		return false
+	}
+	return true
+}
+
+// CreateEmptyJob creates a new job with the given name
+func (j *Jenkins) CreateEmptyJob(jobName string) error {
+	// Read the standard config.xml file
+	data, err := os.ReadFile("config.xml")
+	if err != nil {
+		log.Println("Error:", err)
+	}
+
+	// Setup the request
+	jobUrl := j.Address + "/createItem"
+	params := url.Values{}
+	params.Add("name", jobName)
+	params.Add("mode", "create")
+	params.Add("Content-Type", "text/xml")
+
+	req, _ := http.NewRequest("POST", jobUrl, bytes.NewBuffer(data))
+	// Add the parameters to the request
+	req.URL.RawQuery = params.Encode()
+	for key, value := range params {
+		req.Header.Add(key, value[0])
+	}
+	req.SetBasicAuth(j.User, j.APIKey)
+
+	// Perform the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Println("Error:", err)
+		log.Println("Error: Could not connect to Jenkins server. Please check the address and try again.")
+		return err
+	}
+	defer resp.Body.Close()
+
+	return nil
+}
+
 func (j *Jenkins) GetJobConfig(jobName string) (string, error) {
 	// Make a get request to url at Address to check if Jenkins is alive
-	thisJenkins := j
 	log.Println("Getting job config for", jobName)
-	jobUrl := thisJenkins.Address + "/job/" + jobName + "/config.xml"
+	jobUrl := j.Address + "/job/" + jobName + "/config.xml"
 	log.Println("jobURL", jobUrl)
 	req, err := http.NewRequest("GET", jobUrl, nil)
 	if err != nil {

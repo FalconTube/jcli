@@ -34,6 +34,7 @@ var (
 type BuildModel struct {
 	BuildUrl      string
 	File          string
+	JobName       string
 	width         int
 	height        int
 	done          bool
@@ -62,6 +63,16 @@ var updateCmd = &cobra.Command{
 
 func (m *BuildModel) initBuild() tea.Cmd {
 	return func() tea.Msg {
+		// Check if the job exists, create it if it doesn't
+		if !Jenkins.CheckJobsExist(m.JobName) {
+			log.Println("Job", m.JobName, "does not exist")
+
+			err := Jenkins.CreateEmptyJob(m.JobName)
+			if err != nil {
+				log.Println("Error:", err)
+				log.Fatal("Error: Could not create job", m.JobName)
+			}
+		}
 
 		// Check if the file exists
 		if _, err := os.Stat(m.File); os.IsNotExist(err) {
@@ -69,24 +80,25 @@ func (m *BuildModel) initBuild() tea.Cmd {
 			log.Fatal("Error: Could not read pipeline script from file", m.File)
 		}
 		log.Println("Info: Reading pipeline script from file", m.File)
-		config, _ := Jenkins.GetJobConfig("foo")
 		newPipeline, err := util.LoadPipelineScriptFromFile(filepath.Clean(m.File))
 		if err != nil {
 			log.Println("Error:", err)
 			log.Fatal("Error: Could not read pipeline script from file", m.File)
 		}
+		config, _ := Jenkins.GetJobConfig(m.JobName)
 		updatedScript, _ := util.ReplacePipelineScript(config, newPipeline)
-		Jenkins.UpdateJobConfig("foo", updatedScript)
-		log.Println("Info: Updated pipeline script for job foo")
+
+		Jenkins.UpdateJobConfig(m.JobName, updatedScript)
+		log.Println("Info: Updated pipeline script for job", m.JobName)
 		// Trigger a build
 		m.statusMessage = "💤 Waiting for job to start..."
-		buildUrl := Jenkins.TriggerBuild("foo")
+		buildUrl := Jenkins.TriggerBuild(m.JobName)
 		// log.Println("Info: Build URL:", buildUrl)
 		time.Sleep(1 * time.Second)
 		// Stream the output of the build console to the terminal
 		log.Println("Info: Build URL inside initBuild:", buildUrl)
 		m.BuildUrl = buildUrl
-		m.statusMessage = " 👷 Executing build..."
+		m.statusMessage = "👷 Executing build..."
 
 		return consoleOutput("No console output yet...")
 	}
@@ -119,13 +131,6 @@ func (m *BuildModel) GetBuildOutput(filterOutput bool) tea.Cmd {
 			log.Println("Error:", err)
 			m.done = true
 		}
-		// Check if the build is still running
-		xMoreData := resp.Header.Get("X-More-Data")
-		if xMoreData != "true" {
-			m.done = true
-			return consoleFinish("Build finished!")
-			// return consoleOutput(string(body))
-		}
 		// Get the new log as raw
 		rawLog := string(body)
 		var cleanedLog string
@@ -134,6 +139,13 @@ func (m *BuildModel) GetBuildOutput(filterOutput bool) tea.Cmd {
 			cleanedLog = removePipelinePart(rawLog)
 		} else {
 			cleanedLog = rawLog
+		}
+
+		// Check if the build is still running
+		xMoreData := resp.Header.Get("X-More-Data")
+		if xMoreData != "true" {
+			m.done = true
+			return consoleFinish(cleanedLog)
 		}
 
 		// Check if the full log is empty
@@ -177,8 +189,12 @@ func NewBuildModel(filename string, width int, height int) *BuildModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+	// Get the job name from the filename
+	jobName := filepath.Base(filename)
+	jobName = strings.TrimSuffix(jobName, filepath.Ext(jobName))
 	return &BuildModel{
 		File:          filename,
+		JobName:       jobName,
 		spinner:       s,
 		viewport:      vp,
 		userScrolled:  false,
@@ -187,7 +203,6 @@ func NewBuildModel(filename string, width int, height int) *BuildModel {
 }
 
 func (m *BuildModel) Init() tea.Cmd {
-	log.Println("Init in BuildModel")
 	return tea.Batch(m.GetBuildOutput(true), m.spinner.Tick)
 }
 
@@ -196,7 +211,6 @@ func (m *BuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		log.Println("Window size message")
 		m.width, m.height = msg.Width, msg.Height
 		m.viewport.Height = m.height - 7
 		m.viewport.Width = m.width - 3
@@ -222,6 +236,7 @@ func (m *BuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.initBuild())
 	case consoleFinish:
 		// Build finished
+		m.viewport.SetContent(string(msg))
 		m.statusMessage = checkMark.Render() + " Build finished!"
 		m.done = true
 		// return m, tea.Quit
@@ -246,14 +261,14 @@ func (m *BuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m BuildModel) View() string {
 	help := helpStyle.Render(fmt.Sprintf("\n a/G: auto-scroll • j/↓: down • k/↑: up\n c+u/p-up: page up • c+d/p-down: page down •q: exit\n"))
 	if m.done {
-		return doneStyle.Render(m.statusMessage+"\n") + m.viewport.View() + help
+		return m.viewport.View() + doneStyle.Render(m.statusMessage+"\n") + help
 	}
-	spin := m.spinner.View() + " " + m.statusMessage + "\n"
-	return doneStyle.Render(spin) + m.viewport.View() + help
+	spin := m.spinner.View() + m.statusMessage + "\n"
+	return m.viewport.View() + doneStyle.Render(spin) + help
 }
 
 func main() {
-	f, err := tea.LogToFile("debug.log", "console")
+	f, err := tea.LogToFile("lazyjenkins.log", "console")
 	if err != nil {
 		fmt.Println("fatal:", err)
 		os.Exit(1)
