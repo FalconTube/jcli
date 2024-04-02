@@ -42,6 +42,7 @@ type BuildModel struct {
 	userScrolled  bool
 	spinner       spinner.Model
 	viewport      viewport.Model
+	statusport    viewport.Model
 }
 
 type consoleOutput string
@@ -144,7 +145,7 @@ func (m *BuildModel) GetBuildOutput(filterOutput bool) tea.Cmd {
 		// Check if the build is still running
 		xMoreData := resp.Header.Get("X-More-Data")
 		if xMoreData != "true" {
-			m.done = true
+			// m.done = true
 			return consoleFinish(cleanedLog)
 		}
 
@@ -180,10 +181,18 @@ func NewBuildModel(filename string, width int, height int) *BuildModel {
 	// Setup viewport initial dimensions. Will be set to full screen size in the first update.
 	vp := viewport.New(width-3, height-7)
 	vp.Style = lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		Margin(1, 1, 0)
-
+		BorderStyle(lipgloss.DoubleBorder()).
+		Margin(1, 1, 0).
+		BorderForeground(lipgloss.Color("241"))
 	vp.SetContent("No console output yet...")
+	// Setup statusport
+	stp := viewport.New(width-3, 2)
+	stp.Style = lipgloss.NewStyle().
+		Width(80).
+		Align(lipgloss.Center).
+		Margin(1, 1, 0).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("141"))
 
 	// Setup spinner
 	s := spinner.New()
@@ -197,6 +206,7 @@ func NewBuildModel(filename string, width int, height int) *BuildModel {
 		JobName:       jobName,
 		spinner:       s,
 		viewport:      vp,
+		statusport:    stp,
 		userScrolled:  false,
 		statusMessage: "⌚ Triggering job ...",
 	}
@@ -208,12 +218,15 @@ func (m *BuildModel) Init() tea.Cmd {
 
 func (m *BuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+	var statuscmd tea.Cmd
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.viewport.Height = m.height - 7
 		m.viewport.Width = m.width - 3
+		m.statusport.Height = m.height - 7
+		m.statusport.Width = m.width - 3
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc", "q":
@@ -236,35 +249,45 @@ func (m *BuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.initBuild())
 	case consoleFinish:
 		// Build finished
-		m.viewport.SetContent(string(msg))
 		m.statusMessage = checkMark.Render() + " Build finished!"
+		m.viewport.SetContent(string(msg))
+		if !m.userScrolled {
+			m.viewport.GotoBottom()
+		}
+		m.viewport, cmd = m.viewport.Update(msg)
 		m.done = true
-		// return m, tea.Quit
+		return m, cmd
 	case consoleOutput:
 		m.viewport.SetContent(string(msg))
 		// If user scrolled manually, don't auto-scroll
 		if !m.userScrolled {
 			m.viewport.GotoBottom()
 		}
-		// m.viewport, cmd = m.viewport.Update(msg)
 
 		cmds = append(cmds, m.GetBuildOutput(true))
 	case spinner.TickMsg:
 		m.spinner, cmd = m.spinner.Update(msg)
+		m.statusport.SetContent(m.spinner.View() + m.statusMessage)
+		m.statusport, statuscmd = m.statusport.Update(msg)
+		cmds = append(cmds, cmd, statuscmd)
+		if m.done {
+			m.statusport.SetContent(m.statusMessage)
+			log.Println("Build done")
+			return m, nil
+		}
 		return m, cmd
 	}
 	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
+	cmds = append(cmds, cmd, statuscmd)
 	return m, tea.Batch(cmds...)
 }
 
 func (m BuildModel) View() string {
-	help := helpStyle.Render(fmt.Sprintf("\n a/G: auto-scroll • j/↓: down • k/↑: up\n c+u/p-up: page up • c+d/p-down: page down •q: exit\n"))
+	help := helpStyle.Render(fmt.Sprintf("\n\n a/G: auto-scroll • j/↓: down • k/↑: up c+u/p-up: page up • c+d/p-down: page down •q: exit\n"))
 	if m.done {
-		return m.viewport.View() + doneStyle.Render(m.statusMessage+"\n") + help
+		return m.viewport.View() + m.statusport.View() + help
 	}
-	spin := m.spinner.View() + m.statusMessage + "\n"
-	return m.viewport.View() + doneStyle.Render(spin) + help
+	return m.viewport.View() + m.statusport.View() + help
 }
 
 func main() {
