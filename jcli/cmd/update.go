@@ -243,6 +243,8 @@ func (m *BuildModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Append to auto scroll again
 			m.userScrolled = false
 			m.viewport.GotoBottom()
+		case "o": // Open the build in the browser
+			util.Openbrowser(m.BuildUrl)
 		}
 	case emptyUrl:
 		log.Println("Empty URL")
