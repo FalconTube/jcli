@@ -2,11 +2,15 @@ package jenkins
 
 import (
 	"encoding/xml"
-	"github.com/beevik/etree"
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"regexp"
+	"runtime"
+
+	"github.com/beevik/etree"
 )
 
 // ReplacePipelineScript replaces the pipeline script in the config.xml with the newPipeline
@@ -56,4 +60,23 @@ func RemovePipelinePart(consoleOutput string) string {
 	regexp := regexp.MustCompile(`(?m)\[Pipeline\].*\n`)
 	res := regexp.ReplaceAllString(consoleOutput, "")
 	return res
+}
+
+func Openbrowser(url string) {
+	var err error
+
+	switch runtime.GOOS {
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	default:
+		err = fmt.Errorf("error while opening link in browser")
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+
 }
