@@ -86,14 +86,28 @@ func (m *BuildModel) initBuild() tea.Cmd {
 			log.Println("Error:", err)
 			log.Fatal("Error: Could not read pipeline script from file", m.File)
 		}
-		config, _ := Jenkins.GetJobConfig(m.JobName)
-		updatedScript, _ := util.ReplacePipelineScript(config, newPipeline)
+		config, err := Jenkins.GetJobConfig(m.JobName)
+		if err != nil {
+			log.Println("Error:", err)
+			log.Fatal("Error: Could not get job config for job", m.JobName)
+		}
+		updatedScript, err := util.ReplacePipelineScript(config, newPipeline)
+		if err != nil {
+			log.Println("Error:", err)
+			log.Fatal("Error: Could not replace pipeline script for job", m.JobName)
+		}
 
-		Jenkins.UpdateJobConfig(m.JobName, updatedScript)
-		log.Println("Info: Updated pipeline script for job", m.JobName)
+		err = Jenkins.UpdateJobConfig(m.JobName, updatedScript)
+		if err != nil {
+			log.Println("Error:", err)
+			log.Fatal("Error: Could not update pipeline script for job", m.JobName)
+		}
 		// Trigger a build
 		m.statusMessage = "💤 Waiting for job to start..."
-		buildUrl := Jenkins.TriggerBuild(m.JobName)
+		buildUrl, err := Jenkins.TriggerBuild(m.JobName)
+		if err != nil {
+			log.Fatal(err)
+		}
 		// log.Println("Info: Build URL:", buildUrl)
 		time.Sleep(1 * time.Second)
 		// Stream the output of the build console to the terminal

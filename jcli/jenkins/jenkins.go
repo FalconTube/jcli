@@ -3,6 +3,7 @@ package jenkins
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -26,6 +27,11 @@ type Jenkins struct {
 	APIKey  string
 }
 
+type RequestError struct {
+	StatusCode int
+	Msg        string
+}
+
 func NewJenkins(address, user, apiKey string) *Jenkins {
 	// Load the API Key from the keyring
 	return &Jenkins{
@@ -40,7 +46,7 @@ func (j *Jenkins) UpdateJobConfig(jobName, updatedConfig string) error {
 	jobUrl := j.Address + "/job/" + jobName + "/config.xml"
 	req, err := http.NewRequest("POST", jobUrl, bytes.NewBuffer([]byte(updatedConfig)))
 	if err != nil {
-		log.Println("Error:", err)
+		return err
 	}
 	req.SetBasicAuth(j.User, j.APIKey)
 	// Set the content type to xml
@@ -48,8 +54,6 @@ func (j *Jenkins) UpdateJobConfig(jobName, updatedConfig string) error {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Println("Error:", err)
-		log.Println("Error: Could not connect to Jenkins server. Please check the address and try again.")
 		return err
 	}
 	defer resp.Body.Close()
@@ -149,7 +153,7 @@ func (j *Jenkins) CheckInQueue(queueLocation string) (string, bool) {
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Println("Error:", err)
-		log.Println("Error: Could not check build queue for queueLocation", queueLocation)
+		log.Fatal("Error: Could not check build queue for queueLocation", queueLocation)
 	}
 	defer resp.Body.Close()
 	// Get json output from the response
@@ -164,21 +168,30 @@ func (j *Jenkins) CheckInQueue(queueLocation string) (string, bool) {
 	return queueInfo.Location.Url, false
 }
 
-func (j *Jenkins) TriggerBuild(jobName string) string {
+func (j *Jenkins) TriggerBuild(jobName string) (string, error) {
+	// Check if Jenkins job is parameterized
+	isParametrized, err := j.JobIsParametrized(jobName)
+	if err != nil {
+		return "", err
+	}
+	if isParametrized {
+		return "", errors.New("Error: Jenkins job is parameterized. Please run the job manually.")
+	}
 	// Trigger the build
 	jobUrl := j.Address + "/job/" + jobName + "/build?delay=0sec"
 	req, _ := http.NewRequest("POST", jobUrl, nil)
 	req.SetBasicAuth(j.User, j.APIKey)
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if err != nil {
-		log.Println("Error:", err)
-		log.Println("Error: Could not trigger build for job", jobName)
+	if err != nil || resp.StatusCode != 201 {
+		return "", errors.New("Error: Could not trigger build for job " + jobName)
 	}
 	defer resp.Body.Close()
 	headers := resp.Header
 	// Read queue location from headers
 	queueLocation := headers.Get("Location")
+
+	log.Println("Info: Build is in queue. Queue location:", queueLocation)
 	// Check if the build is in the queue
 	// Loop until the build is no longer in the queue
 	var buildUrl string
@@ -193,5 +206,40 @@ func (j *Jenkins) TriggerBuild(jobName string) string {
 	}
 	// fmt.Printf("\n🚀 Build started successfully!\n🔗 Build url is: %sconsole\n🗎  Will now serve console output in real time\n\n", buildUrl)
 	// finalMsg := fmt.Sprintf("🚀 Build started successfully!\n🔗 Build url is: %sconsole\n🗎  Will now serve console output in real time\n\n", buildUrl)
-	return buildUrl
+	return buildUrl, nil
+}
+
+func (j *Jenkins) JobIsParametrized(jobName string) (bool, error) {
+	// Check if Jenkins job is parameterized
+	testUrl := j.Address + "/job/" + jobName + "/api/json"
+	req, _ := http.NewRequest("GET", testUrl, nil)
+	req.SetBasicAuth(j.User, j.APIKey)
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, errors.New("Error: Could not connect to Jenkins server. Please check the address and try again.")
+	}
+
+	defer resp.Body.Close()
+	// Read the response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, errors.New("Error: Could not read response from Jenkins server.")
+	}
+	// Check if there are parameters
+	var jobInfo map[string]interface{}
+	json.Unmarshal(body, &jobInfo)
+	if jobInfo["property"] != nil {
+		properties := jobInfo["property"].([]interface{})
+		for _, property := range properties {
+			if property != nil {
+				parameters := property.(map[string]interface{})["parameterDefinitions"]
+				if parameters != nil {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
+
 }
