@@ -18,7 +18,7 @@ var entryCmd = &cobra.Command{
 	Short: "A brief description of your command",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
-		f, err := tea.LogToFile("entry.log", "main")
+		f, err := tea.LogToFile("lazyjenkins.log", "main")
 		if err != nil {
 			fmt.Println("fatal:", err)
 			os.Exit(1)
